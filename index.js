@@ -1,12 +1,18 @@
+require("dotenv").config();
+const crypto = require("crypto");
 const axios = require("axios");
 
-const SYMBOL = "BTCUSDT";
-const BUY_PRICE = 70300;
-const SELL_PRICE = 70500;
-let isOpened = false;
+const SYMBOL = process.env.SYMBOL;
+const BUY_PRICE = process.env.BUY_PRICE;
+const SELL_PRICE = process.env.SELL_PRICE;
+const API_KEY = process.env.API_KEY;
+const SECRET_KEY = process.env.SECRET_KEY;
+const QUANTITY = process.env.QUANTITY;
+const API_URL_HML = process.env.API_URL_HML;
+const ENDPOINT_GET = process.env.ENDPOINT_GET;
+const ENDPOINT_POST = process.env.ENDPOINT_POST;
 
-const API_URL_HML = "https://testnet.binance.vision";
-//https://api.binance.com
+let isOpened = false;
 
 function smaCalculate(data){
 	const close = data.map(candle => parseFloat(candle[4]));
@@ -16,29 +22,56 @@ function smaCalculate(data){
 
 async function start() {
 	const { data } = await axios.get(
-		API_URL_HML + "/api/v3/klines?limit=21&interval=15m&symbol=" + SYMBOL
+		API_URL_HML + ENDPOINT_GET + SYMBOL
   	);
+
   	const candle = data[data.length - 1];
   	const price = parseFloat(candle[4]);
+	const sma = smaCalculate(data);
+
   	console.clear();
   	console.log("Price: " + price);
-
-	const sma21 = smaCalculate(data);
-	const sma13 = smaCalculate(data.slice(8));
-	console.log("SMA (13): " + sma13);
-	console.log("SMA (21): " + sma21);
+	console.log("SMA: " + sma);
 	console.log("Is Opened? " + isOpened)
 
-	if (sma13 > sma21 && isOpened === false) {
-		console.log("buy");
+	// buy
+	if (price <= (sma * 0.9) && isOpened === false) {
 		isOpened = true;
-	} else if (sma21 < sma13 && isOpened === true) {
-		console.log("sell");
+		newOrder(SYMBOL, QUANTITY, "buy");
+	} // sell
+	else if (price >= (sma * 1.1) && isOpened === true) {
+		newOrder(SYMBOL, QUANTITY, "sell");
 		isOpened = false;
-	} else
+	} // await
+	else
 		console.log("await");
 }
 
-setInterval(start, 3000);
+async function newOrder(symbol, quantity, side) {
+	const order = { symbol, quantity, side };
+	order.type = "MARKET";
+	order.timestamp = Date.now();
 
+	const signature = crypto
+		.createHmac("sha256", SECRET_KEY)
+		.update(new URLSearchParams(order).toString())
+		.digest("hex");
+
+	order.signature = signature;
+
+	try {
+		const { data } = await axios.post(
+			API_URL_HML + ENDPOINT_POST,
+			new URLSearchParams(order).toString(),
+			{ headers: { "X-MBX-APIKEY": API_KEY } }
+		);
+		
+		console.log(data);
+	} 
+	catch (err) {
+		console.log(err.response.data)
+	}
+}
+
+setInterval(start, 3000);
 start();
